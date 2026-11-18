@@ -227,3 +227,39 @@
 @media (prefers-reduced-motion: reduce) {
     .rpg-thought-bubble, .rpg-thought-bubble::before, .rpg-thought-bubble::after { animation: none; }
 }
+
+/* ---------- rewrite & translate (on a character's message) ----------
+   In SillyTavern's own theme colours, so it sits in any theme; small, under the name, never over the text. */
+.mes_button.dmt-rw-btn.on { color: var(--SmartThemeQuoteColor, #e3b04b); }
+/* while the feather or the language sign is at work it glows and breathes, in the theme's own accent;
+   the row of buttons stays shown for that time even if the theme hides it until hover */
+.mes_button.dmt-rw-btn.busy, .mes_button.dmt-tr-btn.busy {
+    color: var(--SmartThemeQuoteColor, #e3b04b) !important; opacity: 1 !important; pointer-events: none;
+    animation: dmt-rw-glow 1.3s ease-in-out infinite;
+}
+@keyframes dmt-rw-glow {
+    0%, 100% { filter: drop-shadow(0 0 2px var(--SmartThemeQuoteColor, #e3b04b)); transform: scale(1); }
+    50% { filter: drop-shadow(0 0 7px var(--SmartThemeQuoteColor, #e3b04b)) drop-shadow(0 0 2px var(--SmartThemeQuoteColor, #e3b04b)); transform: scale(1.12); }
+}
+.mes_buttons:has(.dmt-rw-btn.busy, .dmt-tr-btn.busy) { opacity: 1 !important; visibility: visible !important; display: flex !important; }
+.dmt-rw-bar, .dmt-tr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: .8em; line-height: 1.2; }
+.dmt-rw-bar { margin: 2px 0 6px; }
+.dmt-rw-tag { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; letter-spacing: .03em; color: var(--SmartThemeQuoteColor, #e3b04b); }
+.dmt-rw-seg { display: inline-flex; border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, .25)); border-radius: 999px; overflow: hidden; }
+.dmt-rw-bar button, .dmt-tr-head button { font: inherit; color: var(--SmartThemeBodyColor, #ddd); background: transparent; border: 0; padding: 3px 10px; cursor: pointer; transition: background-color .08s ease-out, color .08s ease-out; }
+.dmt-rw-seg button[aria-pressed="true"] { background: var(--SmartThemeQuoteColor, #e3b04b); color: var(--SmartThemeBlurTintColor, #1a1a1a); font-weight: 600; }
+.dmt-rw-seg button:hover:not([aria-pressed="true"]), .dmt-rw-again:hover:not(:disabled), .dmt-tr-head button:hover:not(:disabled) { background: rgba(127, 127, 127, .18); }
+.dmt-rw-again, .dmt-tr-head button { border: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, .3)) !important; border-radius: 999px; }
+.dmt-rw-bar button:disabled, .dmt-tr-head button:disabled { opacity: .6; cursor: default; }
+.dmt-rw-bar button:focus-visible, .dmt-tr-head button:focus-visible, .mes_button.dmt-rw-btn:focus-visible, .mes_button.dmt-tr-btn:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor, #e3b04b); outline-offset: 1px; }
+.mes_text.dmt-tr-hidden { display: none !important; }
+.dmt-tr-box { margin-top: 2px; padding-left: 10px; border-left: 2px solid var(--SmartThemeQuoteColor, #e3b04b); animation: dmt-tr-in .2s ease-out; }
+.dmt-tr-head { margin-bottom: 4px; }
+.dmt-tr-head small { opacity: .75; order: 3; flex: 1 0 100%; }
+.dmt-tr-acts { display: inline-flex; gap: 6px; margin-left: auto; }
+@keyframes dmt-tr-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mes_button.dmt-rw-btn.busy, .mes_button.dmt-tr-btn.busy, .dmt-tr-box { animation: none; } .mes_button.dmt-rw-btn.busy, .mes_button.dmt-tr-btn.busy { filter: drop-shadow(0 0 5px var(--SmartThemeQuoteColor, #e3b04b)); } }
+@media (hover: none) { .dmt-rw-bar button, .dmt-tr-head button { padding: 6px 12px; } }
+.dmt-tr-text q, .dmt-tr-text .quote { color: var(--SmartThemeQuoteColor, #e3b04b); }
+.dmt-tr-text em, .dmt-tr-text i { color: var(--SmartThemeEmColor, inherit); }
+.dmt-tr-text p { margin: 0 0 .6em; }

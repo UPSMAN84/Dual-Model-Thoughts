@@ -1,5 +1,5 @@
 import { getContext, extension_settings } from '../../../extensions.js';
-import { eventSource, event_types, saveChatDebounced, saveSettingsDebounced, setExtensionPrompt, extension_prompt_roles, characters } from '../../../../script.js';
+import { eventSource, event_types, saveChatDebounced, saveSettingsDebounced, setExtensionPrompt, extension_prompt_roles, characters, updateMessageBlock, messageFormatting } from '../../../../script.js';
 
 const MODULE_NAME = 'dual_model_thoughts';
 const DMT_PROMPT_KEY = 'dmt_thought_injection';
@@ -66,6 +66,32 @@ const I18N = {
         style_rose: "Rose",
         style_night: "Night",
         ui_preview: "I wonder if they noticed my hands shaking.",
+        ui_rw: "Rewrite & translate",
+        ui_rw_on: "Buttons on the characters' messages: rewrite and translate",
+        ui_rw_tip: "Uses the API above. A rewrite replaces the message — what you keep is what the main model reads next; the original stays one click away. A translation is only for reading: the model always gets the message itself.",
+        ui_rw_auto: "Rewrite new replies by itself",
+        ui_tr_auto: "Translate new replies by itself (after the rewrite)",
+        ui_auto_tip: "Only replies that arrive from now on: the old ones stay as they are. The buttons still work by hand.",
+        ui_rw_prompt: "Prompt — rewrite",
+        ui_rw_examples: "Examples of the style (optional)",
+        ui_rw_examples_ph: "Before → after pairs, or a passage written the way you like. Added under the prompt.",
+        ui_tr_lang: "Translate into:",
+        ui_tr_prompt: "Prompt — translation",
+        ui_tr_tip: "{LANG} is replaced with the language above.",
+        rw_btn: "Rewrite",
+        rw_busy: "Rewriting…",
+        rw_tag: "Rewritten",
+        rw_show_orig: "Original",
+        rw_show_alt: "Rewritten",
+        rw_again: "Again",
+        rw_again_title: "Write the rewrite again from the original",
+        rw_view_title: "Which version stays in the chat — the one shown is what the main model reads",
+        tr_btn: "Translate",
+        tr_busy: "Translating…",
+        tr_tag: "Translation",
+        tr_hide: "Hide",
+        tr_again: "Again",
+        tr_note: "only for reading — the model gets the original",
         hidden_prompt: `You are the hidden inner voice of "{{char}}" — what {{char}} really thinks behind the face they show.
 Task: write {{char}}'s inner thought right now, based on the conversation history.
 Rules:
@@ -146,6 +172,32 @@ Rules:
         style_rose: "Розовый",
         style_night: "Ночной",
         ui_preview: "Интересно, заметили ли они, как дрожат мои руки.",
+        ui_rw: "Переписать и перевести",
+        ui_rw_on: "Кнопки на сообщениях персонажей: переписать и перевести",
+        ui_rw_tip: "Работает через API выше. Переписанный текст заменяет сообщение — что оставишь, то основная модель и прочитает дальше; оригинал всегда в одно нажатие. Перевод только для чтения: в модель уходит само сообщение.",
+        ui_rw_auto: "Переписывать новые ответы самой",
+        ui_tr_auto: "Переводить новые ответы самой (после переписывания)",
+        ui_auto_tip: "Только ответы, которые придут дальше: старые остаются как есть. Кнопки по-прежнему работают вручную.",
+        ui_rw_prompt: "Промпт — переписывание",
+        ui_rw_examples: "Примеры стиля (необязательно)",
+        ui_rw_examples_ph: "Пары «было → стало» или отрывок, написанный так, как тебе нравится. Добавляются под промптом.",
+        ui_tr_lang: "Переводить на:",
+        ui_tr_prompt: "Промпт — перевод",
+        ui_tr_tip: "{LANG} заменяется языком, указанным выше.",
+        rw_btn: "Переписать",
+        rw_busy: "Переписываю…",
+        rw_tag: "Переписано",
+        rw_show_orig: "Оригинал",
+        rw_show_alt: "Переписанное",
+        rw_again: "Ещё раз",
+        rw_again_title: "Переписать заново из оригинала",
+        rw_view_title: "Какая версия остаётся в чате — показанную и читает основная модель",
+        tr_btn: "Перевести",
+        tr_busy: "Перевожу…",
+        tr_tag: "Перевод",
+        tr_hide: "Скрыть",
+        tr_again: "Ещё раз",
+        tr_note: "только для чтения — в модель уходит оригинал",
         hidden_prompt: `Ты — скрытый внутренний голос персонажа "{{char}}": то, что {{char}} думает на самом деле, за лицом, которое показывает.
 Задача: напиши мысль {{char}} прямо сейчас, по истории диалога.
 Правила:
@@ -171,6 +223,13 @@ Rules:
 5. Пиши на русском языке.`
     }
 };
+
+/* What is sent to the model for the rewrite and the translation. The rewrite prompt is the player's own
+   text, word for word; both can be edited in the settings, and "Default" brings these back. */
+const RW_PROMPT = `You are writing prose for a role-playing game. Rewrite the excerpt below so that it reads like lively, fluid literary prose, while keeping the events exactly the same. Do not lose the meaning, the characters’ personalities, or the plot elements. Replace standard phrases, X and Y constructions, and clichés with specific, fresh wording, and avoid unnecessary metaphors or adding new ones. Remove any excessive mathematical precision from the text if it isn’t essential.
+Do not add events, objects, emotions, or storylines that aren’t in the original, and do not change the characters’ personalities.
+Avoid micro-cataloguing specific numbers or repetitive small details unless they serve a dramatic purpose. Instead of listing precise counts (e.g., 'two blinks,' 'two tea leaves'), focus on the sensory impression and the weight of the moment. Let the details breathe as atmosphere, not as an inventory.`;
+const TR_PROMPT = `Translate the passage below into {LANG}. This is a literary translation for a reader: keep the meaning, the tone, each character's voice and the formatting (dialogue, italics, paragraphs). Keep names as they are unless they have an established form in {LANG}. Do not add, cut or explain anything. Output only the translation.`;
 
 let dmtSettings = {};
 function langObj() { return I18N[dmtSettings.language] || I18N.en; }
@@ -329,6 +388,29 @@ function buildSettingsHtml() {
                     <div class="dmt-line"><div class="menu_button" id="dmt-reset-hidden"><i class="fa-solid fa-rotate-left"></i> ${t('ui_reset_prompt')}</div><small>${t('ui_prompt_hidden_tip')}</small></div>
                 </details>`)}
             ${sub(`🎭 ${t('ui_char')}`, `<div id="dmt-char-box"></div>`)}
+            ${sub(`✒️ ${t('ui_rw')}`, `
+                <label class="checkbox_label"><input type="checkbox" id="dmt-rw-on"> ${t('ui_rw_on')}</label>
+                <small class="dmt-hint">${t('ui_rw_tip')}</small>
+                <div class="dmt-in" id="dmt-auto-box">
+                    <label class="checkbox_label"><input type="checkbox" id="dmt-rw-auto"> ${t('ui_rw_auto')}</label>
+                    <label class="checkbox_label"><input type="checkbox" id="dmt-tr-auto"> ${t('ui_tr_auto')}</label>
+                    <small class="dmt-hint">${t('ui_auto_tip')}</small>
+                </div>
+                <details class="dmt-details">
+                    <summary><i class="fa-solid fa-feather-pointed"></i> ${t('ui_rw_prompt')}</summary>
+                    <textarea id="dmt-rw-prompt" class="text_pole" rows="8" placeholder="${escapeHtml(t('ui_prompt_ph'))}"></textarea>
+                    <div class="dmt-line"><div class="menu_button" id="dmt-rw-reset"><i class="fa-solid fa-rotate-left"></i> ${t('ui_reset_prompt')}</div></div>
+                </details>
+                <details class="dmt-details">
+                    <summary><i class="fa-solid fa-quote-left"></i> ${t('ui_rw_examples')}</summary>
+                    <textarea id="dmt-rw-examples" class="text_pole" rows="6" maxlength="12000" placeholder="${escapeHtml(t('ui_rw_examples_ph'))}"></textarea>
+                </details>
+                <div class="dmt-row"><label for="dmt-tr-lang">${t('ui_tr_lang')}</label><input type="text" id="dmt-tr-lang" class="text_pole" maxlength="40" placeholder="Russian"></div>
+                <details class="dmt-details">
+                    <summary><i class="fa-solid fa-language"></i> ${t('ui_tr_prompt')}</summary>
+                    <textarea id="dmt-tr-prompt" class="text_pole" rows="5" placeholder="${escapeHtml(t('ui_prompt_ph'))}"></textarea>
+                    <div class="dmt-line"><div class="menu_button" id="dmt-tr-reset"><i class="fa-solid fa-rotate-left"></i> ${t('ui_reset_prompt')}</div><small>${t('ui_tr_tip')}</small></div>
+                </details>`)}
             ${sub(`🎨 ${t('ui_look')}`, `
                 <div class="dmt-row"><label for="dmt-style">${t('ui_style')}</label><select id="dmt-style" class="text_pole">${STYLES.map(k => opt(k, 'style_' + k)).join('')}</select></div>
                 <div class="dmt-preview-wrap"><div class="dmt-preview" id="dmt-preview" data-style="classic"><div class="rpg-thought-header"><span><i class="fa-solid fa-brain"></i> ${escapeHtml(t('ui_char'))}</span></div><div class="rpg-thought-text">${escapeHtml(t('ui_preview'))}</div></div></div>`)}
@@ -423,7 +505,14 @@ function loadSettings() {
         mode: 'normal',          // the mode of a character with no preset of their own: 'normal' | 'hidden'
         hiddenPrompt: '',        // the prompt of the "hidden side" mode (the ordinary one is systemPrompt, as before)
         bubbleStyle: 'classic',
-        profiles: {}             // per character (by card file): { mode: 'global'|'normal'|'hidden', rules, at }
+        profiles: {},            // per character (by card file): { mode: 'global'|'normal'|'hidden', rules, at }
+        rwOn: false,             // the rewrite / translate buttons on the characters' messages
+        rwAuto: false,           // a new reply is rewritten by itself
+        trAuto: false,           // a new reply is translated by itself (after the rewrite, if that is on too)
+        rwPrompt: '',            // empty: RW_PROMPT
+        rwExamples: '',
+        trLang: '',              // empty: the interface language
+        trPrompt: ''             // empty: TR_PROMPT
     };
     dmtSettings = Object.assign({}, defaults, extension_settings[MODULE_NAME]);
     if (!Number.isFinite(dmtSettings.contextMessages)) dmtSettings.contextMessages = defaults.contextMessages;
@@ -437,6 +526,8 @@ function loadSettings() {
     if (!['normal', 'hidden'].includes(dmtSettings.mode)) dmtSettings.mode = 'normal';
     if (!STYLES.includes(dmtSettings.bubbleStyle)) dmtSettings.bubbleStyle = 'classic';
     if (!dmtSettings.profiles || typeof dmtSettings.profiles !== 'object' || Array.isArray(dmtSettings.profiles)) dmtSettings.profiles = {};
+    ['rwPrompt', 'rwExamples', 'trLang', 'trPrompt'].forEach(k => { if (typeof dmtSettings[k] !== 'string') dmtSettings[k] = ''; });
+    dmtSettings.rwOn = !!dmtSettings.rwOn; dmtSettings.rwAuto = !!dmtSettings.rwAuto; dmtSettings.trAuto = !!dmtSettings.trAuto;
 }
 
 function saveSettings() {
@@ -551,10 +642,15 @@ async function callModel(systemPrompt, userText, maxTokens, temperature) {
         throw new Error(t('err_no_key'));
     }
     const endpointUrl = apiUrl() + '/chat/completions';
-    const maxRetries = 2;
+    /* A local server answers "busy" (503) or drops the connection while it is still writing another
+       request — the rewrite, Living Scene's split, a thought. Those tries used to be repeated at once and
+       all fail together; now each waits a little longer before the next. Only reaching the server changes. */
+    const maxRetries = 3;
+    const wait = i => new Promise(r => setTimeout(r, 1500 * (i + 1)));
     for (let i = 0; i <= maxRetries; i++) {
+        let response;
         try {
-            const response = await fetch(endpointUrl, {
+            response = await fetch(endpointUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey().trim()}`,
@@ -572,9 +668,14 @@ async function callModel(systemPrompt, userText, maxTokens, temperature) {
                     max_tokens: maxTokens
                 })
             });
-            if (response.status === 429) {
-                if (i < maxRetries) { await new Promise(r => setTimeout(r, 2000 * (i + 1))); continue; }
-                throw new Error(t('err_rate'));
+        } catch (netErr) {   // the connection itself failed (the server was busy or restarting)
+            if (i < maxRetries) { await wait(i); continue; }
+            throw netErr;
+        }
+        try {
+            if ([429, 500, 502, 503, 504].includes(response.status)) {
+                if (i < maxRetries) { await wait(i); continue; }
+                throw new Error(response.status === 429 ? t('err_rate') : `HTTP Error: ${response.status}`);
             }
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             const data = await response.json();
@@ -584,6 +685,7 @@ async function callModel(systemPrompt, userText, maxTokens, temperature) {
             return content;
         } catch (error) {
             if (i === maxRetries) throw error;
+            await wait(i);
         }
     }
 }
@@ -924,6 +1026,17 @@ function mountSettings() {
     applyBubbleStyle();
     renderCharBox();
 
+    $('#dmt-rw-on').prop('checked', dmtSettings.rwOn).on('change', function () { dmtSettings.rwOn = this.checked; $('#dmt-auto-box').toggle(this.checked); saveSettings(); rwSyncAll(); });
+    $('#dmt-auto-box').toggle(dmtSettings.rwOn);
+    $('#dmt-rw-auto').prop('checked', dmtSettings.rwAuto).on('change', function () { dmtSettings.rwAuto = this.checked; saveSettings(); });
+    $('#dmt-tr-auto').prop('checked', dmtSettings.trAuto).on('change', function () { dmtSettings.trAuto = this.checked; saveSettings(); });
+    $('#dmt-rw-prompt').val(dmtSettings.rwPrompt || RW_PROMPT).on('input', function () { dmtSettings.rwPrompt = this.value === RW_PROMPT ? '' : this.value; saveSettings(); });
+    $('#dmt-rw-reset').on('click', () => { dmtSettings.rwPrompt = ''; $('#dmt-rw-prompt').val(RW_PROMPT); saveSettings(); });
+    $('#dmt-rw-examples').val(dmtSettings.rwExamples).on('input', function () { dmtSettings.rwExamples = String(this.value).slice(0, 12000); saveSettings(); });
+    $('#dmt-tr-lang').val(dmtSettings.trLang).attr('placeholder', dmtSettings.language === 'ru' ? 'Russian' : 'English').on('input', function () { dmtSettings.trLang = String(this.value).slice(0, 40); saveSettings(); });
+    $('#dmt-tr-prompt').val(dmtSettings.trPrompt || TR_PROMPT).on('input', function () { dmtSettings.trPrompt = this.value === TR_PROMPT ? '' : this.value; saveSettings(); });
+    $('#dmt-tr-reset').on('click', () => { dmtSettings.trPrompt = ''; $('#dmt-tr-prompt').val(TR_PROMPT); saveSettings(); });
+
     $('#dmt-inject-context').prop('checked', dmtSettings.injectContext).on('change', function () {
         dmtSettings.injectContext = this.checked;
         $('#dmt-inject-count-row').toggle(dmtSettings.injectContext);
@@ -944,6 +1057,204 @@ function mountSettings() {
         $(this).val(dmtSettings.contextMessages);
         saveSettings();
     });
+}
+
+/* ============================================================
+   REWRITE & TRANSLATE — two buttons on a character's message.
+   Rewrite: the second model rewrites the reply; the version you keep becomes the message itself
+   (its text and its swipe), so the main model reads it from then on. Both versions are kept per
+   swipe in extra.dmt_rw, and the small bar under the text switches between them or writes again.
+   Translate: a translation shown in place of the text, only for reading — the message is untouched,
+   so the main model always gets the original. Kept per swipe in extra.dmt_tr for the text it was made of.
+   ============================================================ */
+const rwBusy = new Set();     // `${chatId}#${id}#${swipe}#rw|tr`
+function rwSwipe(msg) { return String(msg.swipe_id ?? 0); }
+function rwRec(msg) { const r = msg && msg.extra && msg.extra.dmt_rw && msg.extra.dmt_rw[rwSwipe(msg)]; return r && typeof r.orig === 'string' && typeof r.alt === 'string' ? r : null; }
+function trRec(msg) { const r = msg && msg.extra && msg.extra.dmt_tr && msg.extra.dmt_tr[rwSwipe(msg)]; return r && typeof r.out === 'string' && r.src === msg.mes ? r : null; }
+function rwKey(id, msg, kind) { return `${getContext().chatId}#${id}#${rwSwipe(msg)}#${kind}`; }
+function rwEligible(msg) { return !!(msg && !msg.is_user && !msg.is_system && String(msg.mes || '').trim()); }
+// the message's text changes as if edited by hand: its swipe too, then the block, then the neighbours hear of it
+function rwSetText(id, text) {
+    const msg = getContext().chat[id];
+    if (!msg) return;
+    msg.mes = text;
+    if (Array.isArray(msg.swipes) && msg.swipes.length > (msg.swipe_id ?? 0)) msg.swipes[msg.swipe_id ?? 0] = text;
+    try { updateMessageBlock(id, msg); } catch (e) { console.warn('[DMT] redraw', e); }
+    saveChatDebounced();
+    try { eventSource.emit(event_types.MESSAGE_EDITED, id); eventSource.emit(event_types.MESSAGE_UPDATED, id); } catch (e) { }
+    rwSync(id);
+}
+function cleanModelText(x) {
+    return String(x || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^\s*```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+}
+function rwBudget(text) { return Math.max(400, Math.min(6000, Math.round(String(text).length / 2.5) + 300)); }
+async function rwRun(id) {
+    const ctx = getContext(), msg = ctx.chat[id];
+    if (!rwEligible(msg)) return;
+    const key = rwKey(id, msg, 'rw');
+    if (rwBusy.has(key)) return;
+    const had = rwRec(msg);
+    const orig = had ? had.orig : String(msg.mes);
+    const chatId = ctx.chatId, swipe = rwSwipe(msg);
+    rwBusy.add(key); rwSync(id);
+    try {
+        const ex = String(dmtSettings.rwExamples || '').trim();
+        const sys = (dmtSettings.rwPrompt || RW_PROMPT) + (ex ? `\n\nExamples of the style:\n${ex}` : '');
+        const out = cleanModelText(await callModel(sys, orig, rwBudget(orig), dmtSettings.temperature ?? 0.8));
+        if (!out) throw new Error(t('err_empty'));
+        const now = getContext();
+        const m2 = now.chat[id];
+        if (now.chatId !== chatId || !m2 || rwSwipe(m2) !== swipe) return;   // the chat or the swipe changed meanwhile
+        if (!m2.extra) m2.extra = {};
+        if (!m2.extra.dmt_rw || typeof m2.extra.dmt_rw !== 'object') m2.extra.dmt_rw = {};
+        m2.extra.dmt_rw[swipe] = { orig, alt: out, on: true, at: Date.now() };
+        rwSetText(id, out);
+    } catch (e) {
+        console.warn('[DMT] rewrite', e);
+        toastr.error(t('err_prefix', { msg: e.message || String(e) }));
+    } finally { rwBusy.delete(key); rwSync(id); }
+}
+function rwView(id, alt) {
+    const msg = getContext().chat[id];
+    const r = rwRec(msg);
+    if (!r || r.on === !!alt) return;
+    r.on = !!alt;
+    rwSetText(id, alt ? r.alt : r.orig);
+}
+async function trRun(id, again = false) {
+    const ctx = getContext(), msg = ctx.chat[id];
+    if (!rwEligible(msg)) return;
+    if (!again && trRec(msg)) { msg.extra.dmt_tr[rwSwipe(msg)].shown = true; saveChatDebounced(); rwSync(id); return; }
+    const key = rwKey(id, msg, 'tr');
+    if (rwBusy.has(key)) return;
+    const src = String(msg.mes), chatId = ctx.chatId, swipe = rwSwipe(msg);
+    const lang = String(dmtSettings.trLang || '').trim() || (dmtSettings.language === 'ru' ? 'Russian' : 'English');
+    rwBusy.add(key); rwSync(id);
+    try {
+        const sys = String(dmtSettings.trPrompt || TR_PROMPT).split('{LANG}').join(lang);
+        const out = cleanModelText(await callModel(sys, src, rwBudget(src) * 2, 0.3));
+        if (!out) throw new Error(t('err_empty'));
+        const now = getContext(), m2 = now.chat[id];
+        if (now.chatId !== chatId || !m2 || rwSwipe(m2) !== swipe || m2.mes !== src) return;
+        if (!m2.extra) m2.extra = {};
+        if (!m2.extra.dmt_tr || typeof m2.extra.dmt_tr !== 'object') m2.extra.dmt_tr = {};
+        m2.extra.dmt_tr[swipe] = { src, out, lang, shown: true, at: Date.now() };
+        saveChatDebounced();
+    } catch (e) {
+        console.warn('[DMT] translate', e);
+        toastr.error(t('err_prefix', { msg: e.message || String(e) }));
+    } finally { rwBusy.delete(key); rwSync(id); }
+}
+function trHide(id) {
+    const msg = getContext().chat[id];
+    const r = trRec(msg);
+    if (!r) return;
+    msg.extra.dmt_tr[rwSwipe(msg)].shown = false;
+    saveChatDebounced();
+    rwSync(id);
+}
+// the buttons, the bar under the text and the translation of one message, as its state is now
+function rwSync(id) {
+    const el = document.querySelector(`#chat .mes[mesid="${Number(id)}"]`);
+    if (!el) return;
+    const msg = getContext().chat[id];
+    const on = dmtSettings.rwOn && rwEligible(msg);
+    const btns = el.querySelector('.mes_buttons');
+    let rb = el.querySelector('.dmt-rw-btn'), tb = el.querySelector('.dmt-tr-btn');
+    if (!on) { rb?.remove(); tb?.remove(); el.querySelector('.dmt-rw-bar')?.remove(); el.querySelector('.dmt-tr-box')?.remove(); el.querySelector('.mes_text')?.classList.remove('dmt-tr-hidden'); return; }
+    if (btns && !rb) {
+        rb = document.createElement('div'); rb.className = 'mes_button dmt-rw-btn fa-solid fa-feather-pointed'; rb.setAttribute('role', 'button'); rb.tabIndex = 0;
+        tb = document.createElement('div'); tb.className = 'mes_button dmt-tr-btn fa-solid fa-language'; tb.setAttribute('role', 'button'); tb.tabIndex = 0;
+        btns.prepend(tb); btns.prepend(rb);
+    }
+    const rwB = rwBusy.has(rwKey(id, msg, 'rw')), trB = rwBusy.has(rwKey(id, msg, 'tr'));
+    if (rb) { const had = !!rwRec(msg); rb.classList.toggle('busy', rwB); rb.classList.toggle('on', had); rb.title = rwB ? t('rw_busy') : had ? `${t('rw_btn')}: ${t(rwRec(msg).on ? 'rw_show_orig' : 'rw_show_alt')}` : t('rw_btn'); rb.setAttribute('aria-label', rb.title); }
+    if (tb) { tb.classList.toggle('busy', trB); tb.title = t(trB ? 'tr_busy' : 'tr_btn'); tb.setAttribute('aria-label', tb.title); }
+    // the bar: which version stays, and once more
+    const r = rwRec(msg);
+    const textEl = el.querySelector('.mes_text');
+    let bar = el.querySelector('.dmt-rw-bar');
+    if (r && textEl) {
+        if (!bar) { bar = document.createElement('div'); bar.className = 'dmt-rw-bar'; textEl.before(bar); }
+        const sig = [r.on, rwB, dmtSettings.language].join('|');
+        if (bar.dataset.sig !== sig) {
+            bar.dataset.sig = sig;
+            bar.innerHTML = `<span class="dmt-rw-tag"><i class="fa-solid fa-feather-pointed" aria-hidden="true"></i> ${escapeHtml(t('rw_tag'))}</span>
+                <span class="dmt-rw-seg" role="group" title="${escapeHtml(t('rw_view_title'))}"><button type="button" data-rw-view="0" aria-pressed="${!r.on}">${escapeHtml(t('rw_show_orig'))}</button><button type="button" data-rw-view="1" aria-pressed="${!!r.on}">${escapeHtml(t('rw_show_alt'))}</button></span>
+                <button type="button" class="dmt-rw-again" data-rw-again="1" title="${escapeHtml(t('rw_again_title'))}" ${rwB ? 'disabled' : ''}><i class="fa-solid ${rwB ? 'fa-spinner fa-spin' : 'fa-rotate'}" aria-hidden="true"></i> ${escapeHtml(t(rwB ? 'rw_busy' : 'rw_again'))}</button>`;
+        }
+    } else bar?.remove();
+    // the translation, in place of the text
+    const tr = trRec(msg);
+    let box = el.querySelector('.dmt-tr-box');
+    const showTr = !!(tr && tr.shown) || trB;
+    if (showTr && textEl) {
+        if (!box) { box = document.createElement('div'); box.className = 'dmt-tr-box'; textEl.after(box); }
+        const sig = [tr ? tr.out : '', trB, dmtSettings.language].join('|');
+        if (box.dataset.sig !== sig) {
+            box.dataset.sig = sig;
+            let body = '';
+            if (tr) { try { body = messageFormatting(tr.out, msg.name, false, false, id); } catch (e) { body = escapeHtml(tr.out).replace(/\n/g, '<br>'); } }
+            box.innerHTML = `<div class="dmt-tr-head"><span class="dmt-rw-tag"><i class="fa-solid fa-language" aria-hidden="true"></i> ${escapeHtml(t('tr_tag'))}</span><small>${escapeHtml(t('tr_note'))}</small>
+                ${tr ? `<span class="dmt-tr-acts"><button type="button" data-tr-again="1" ${trB ? 'disabled' : ''}><i class="fa-solid ${trB ? 'fa-spinner fa-spin' : 'fa-rotate'}" aria-hidden="true"></i> ${escapeHtml(t('tr_again'))}</button><button type="button" data-tr-hide="1"><i class="fa-solid fa-eye-slash" aria-hidden="true"></i> ${escapeHtml(t('tr_hide'))}</button></span>` : ''}</div>
+                <div class="dmt-tr-text">${tr && !trB ? body : `<span class="rpg-loading-dots">${escapeHtml(t('tr_busy'))}</span>`}</div>`;
+        }
+        textEl.classList.add('dmt-tr-hidden');
+    } else { box?.remove(); textEl?.classList.remove('dmt-tr-hidden'); }
+}
+/* A new reply, by itself: rewritten first, then the version that stays is translated. Only replies that
+   arrive now (a reply, a new swipe, a continuation); a reply that already has its rewrite or translation
+   for this swipe is not asked again. */
+const autoBusy = new Set();
+async function rwAuto(id) {
+    if (!dmtSettings.rwOn || (!dmtSettings.rwAuto && !dmtSettings.trAuto)) return;
+    const ctx = getContext(), msg = ctx.chat[id];
+    if (!rwEligible(msg)) return;
+    const key = `${ctx.chatId}#${id}#${rwSwipe(msg)}`;
+    if (autoBusy.has(key)) return;
+    autoBusy.add(key);
+    try {
+        if (dmtSettings.rwAuto && !rwRec(msg)) await rwRun(id);
+        const now = getContext(), m2 = now.chat[id];
+        if (now.chatId !== ctx.chatId || !m2 || rwSwipe(m2) !== rwSwipe(msg)) return;   // the chat or the swipe changed meanwhile
+        if (dmtSettings.trAuto && !trRec(m2)) {
+            await trRun(id);
+            // the text changed under it (the reply was still being finished, or another extension touched it)
+            // or the server failed: once more, for the text as it is now
+            const m3 = getContext().chat[id];
+            if (getContext().chatId === ctx.chatId && m3 && rwSwipe(m3) === rwSwipe(msg) && !trRec(m3)) { await new Promise(r => setTimeout(r, 1500)); await trRun(id); }
+        }
+    } finally { autoBusy.delete(key); }
+}
+function rwSyncAll() { document.querySelectorAll('#chat .mes[mesid]').forEach(el => rwSync(Number(el.getAttribute('mesid')))); }
+// a hand edit after a rewrite: the edited text becomes the version on screen
+function rwEdited(id) {
+    const msg = getContext().chat[id];
+    const r = rwRec(msg);
+    if (r && msg.mes !== r.orig && msg.mes !== r.alt) { if (r.on) r.alt = msg.mes; else r.orig = msg.mes; saveChatDebounced(); }
+    rwSync(id);
+}
+function rwBind() {
+    const chat = document.getElementById('chat');
+    if (!chat || chat.dataset.dmtRw) return;
+    chat.dataset.dmtRw = '1';
+    const act = e => {
+        const mes = e.target.closest('.mes[mesid]');
+        if (!mes) return false;
+        const id = Number(mes.getAttribute('mesid'));
+        const b = e.target.closest('.dmt-rw-btn, .dmt-tr-btn, [data-rw-view], [data-rw-again], [data-tr-again], [data-tr-hide]');
+        if (!b || !mes.contains(b) || b.disabled) return false;
+        e.preventDefault(); e.stopPropagation();
+        if (b.classList.contains('dmt-rw-btn')) { const r = rwRec(getContext().chat[id]); if (r) rwView(id, !r.on); else rwRun(id); }
+        else if (b.classList.contains('dmt-tr-btn')) { const tr = trRec(getContext().chat[id]); if (tr && tr.shown) trHide(id); else trRun(id); }
+        else if (b.dataset.rwView !== undefined) rwView(id, b.dataset.rwView === '1');
+        else if (b.dataset.rwAgain) rwRun(id);
+        else if (b.dataset.trAgain) trRun(id, true);
+        else if (b.dataset.trHide) trHide(id);
+        return true;
+    };
+    chat.addEventListener('click', e => { act(e); }, true);
+    chat.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('.dmt-rw-btn, .dmt-tr-btn')) act(e); }, true);
 }
 
 function restoreThoughtsOnLoad() {
@@ -983,7 +1294,19 @@ jQuery(() => {
             observer.observe(chatElement, { childList: true, subtree: true });
         }
 
+        rwBind();
+        setTimeout(rwSyncAll, 1500);
+        const rwLater = id => setTimeout(() => rwSync(id), 0);
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, rwLater);
+        eventSource.on(event_types.MESSAGE_SWIPED, rwLater);
+        eventSource.on(event_types.MESSAGE_UPDATED, rwLater);
+        eventSource.on(event_types.MESSAGE_EDITED, id => setTimeout(() => rwEdited(id), 0));
+        eventSource.on(event_types.MESSAGE_DELETED, () => setTimeout(rwSyncAll, 0));
+        // a continued reply grew past its rewrite: the grown text is the version on screen (as after a hand edit)
+        eventSource.on(event_types.MESSAGE_RECEIVED, (id) => setTimeout(() => { rwEdited(Number(id)); rwAuto(Number(id)); }, 120));
+        if (event_types.MORE_MESSAGES_LOADED) eventSource.on(event_types.MORE_MESSAGES_LOADED, () => setTimeout(rwSyncAll, 0));
         eventSource.on(event_types.CHAT_CHANGED, () => {
+            setTimeout(rwSyncAll, 0); setTimeout(rwSyncAll, 600);
             renderCharBox();
             document.querySelectorAll('.rpg-thought-bubble').forEach(b => b.remove());
             bubblesMap.clear();
