@@ -1,5 +1,6 @@
 import { getContext, extension_settings } from '../../../extensions.js';
 import { eventSource, event_types, saveChatDebounced, saveSettingsDebounced, setExtensionPrompt, extension_prompt_roles, characters, updateMessageBlock, messageFormatting } from '../../../../script.js';
+import './suite-core.js';   // the suite's shared core: one seal for the floating buttons, the request queue, one "when and where"
 
 const MODULE_NAME = 'dual_model_thoughts';
 const DMT_PROMPT_KEY = 'dmt_thought_injection';
@@ -92,6 +93,15 @@ const I18N = {
         tr_hide: "Hide",
         tr_again: "Again",
         tr_note: "only for reading — the model gets the original",
+        ui_my_on: "A button by the message box: translate what I write before sending",
+        ui_my_tip: "Press it — your text in the box becomes the translation; you look and send it yourself. Press again to bring your own text back. SillyTavern's own translation of your messages is best turned off, or the text is translated twice.",
+        ui_my_lang: "My messages into:",
+        ui_my_prompt: "Prompt — translating my messages",
+        my_btn: "Translate my text into {LANG}",
+        my_busy: "Translating… (press to stop waiting)",
+        my_undo: "Bring my own text back",
+        my_empty: "The message box is empty — nothing to translate.",
+        my_changed: "You changed the text while it was being translated — your text stays as it is.",
         hidden_prompt: `You are the hidden inner voice of "{{char}}" — what {{char}} really thinks behind the face they show.
 Task: write {{char}}'s inner thought right now, based on the conversation history.
 Rules:
@@ -198,6 +208,15 @@ Rules:
         tr_hide: "Скрыть",
         tr_again: "Ещё раз",
         tr_note: "только для чтения — в модель уходит оригинал",
+        ui_my_on: "Кнопка у поля ввода: переводить то, что я пишу, до отправки",
+        ui_my_tip: "Нажимаешь — твой текст в поле заменяется переводом; смотришь и отправляешь сама. Нажать ещё раз — вернётся твой текст. Встроенный перевод таверны для своих сообщений лучше выключить, иначе текст переведётся дважды.",
+        ui_my_lang: "Мои сообщения — на:",
+        ui_my_prompt: "Промпт — перевод моих сообщений",
+        my_btn: "Перевести мой текст на {LANG}",
+        my_busy: "Перевожу… (нажми, чтобы не ждать)",
+        my_undo: "Вернуть мой текст",
+        my_empty: "Поле ввода пустое — переводить нечего.",
+        my_changed: "Ты поменяла текст, пока он переводился, — твой текст остаётся как есть.",
         hidden_prompt: `Ты — скрытый внутренний голос персонажа "{{char}}": то, что {{char}} думает на самом деле, за лицом, которое показывает.
 Задача: напиши мысль {{char}} прямо сейчас, по истории диалога.
 Правила:
@@ -229,6 +248,7 @@ Rules:
 const RW_PROMPT = `You are writing prose for a role-playing game. Rewrite the excerpt below so that it reads like lively, fluid literary prose, while keeping the events exactly the same. Do not lose the meaning, the characters’ personalities, or the plot elements. Replace standard phrases, X and Y constructions, and clichés with specific, fresh wording, and avoid unnecessary metaphors or adding new ones. Remove any excessive mathematical precision from the text if it isn’t essential.
 Do not add events, objects, emotions, or storylines that aren’t in the original, and do not change the characters’ personalities.
 Avoid micro-cataloguing specific numbers or repetitive small details unless they serve a dramatic purpose. Instead of listing precise counts (e.g., 'two blinks,' 'two tea leaves'), focus on the sensory impression and the weight of the moment. Let the details breathe as atmosphere, not as an inventory.`;
+const MY_PROMPT = `Translate the player's message below into {LANG}. It is the player's own line in a role-play: keep the meaning, the tone, the person (I / you), the formatting (*actions*, "speech", paragraphs) and the names as they are. Keep anything in double curly braces, like {{user}} or {{char}}, exactly as written. Do not add, cut, answer or explain anything. Output only the translation.`;
 const TR_PROMPT = `Translate the passage below into {LANG}. This is a literary translation for a reader: keep the meaning, the tone, each character's voice and the formatting (dialogue, italics, paragraphs). Keep names as they are unless they have an established form in {LANG}. Do not add, cut or explain anything. Output only the translation.`;
 
 let dmtSettings = {};
@@ -410,7 +430,17 @@ function buildSettingsHtml() {
                     <summary><i class="fa-solid fa-language"></i> ${t('ui_tr_prompt')}</summary>
                     <textarea id="dmt-tr-prompt" class="text_pole" rows="5" placeholder="${escapeHtml(t('ui_prompt_ph'))}"></textarea>
                     <div class="dmt-line"><div class="menu_button" id="dmt-tr-reset"><i class="fa-solid fa-rotate-left"></i> ${t('ui_reset_prompt')}</div><small>${t('ui_tr_tip')}</small></div>
-                </details>`)}
+                </details>
+                <label class="checkbox_label dmt-my-head"><input type="checkbox" id="dmt-my-on"> ${t('ui_my_on')}</label>
+                <div class="dmt-in" id="dmt-my-box">
+                    <small class="dmt-hint">${t('ui_my_tip')}</small>
+                    <div class="dmt-row"><label for="dmt-my-lang">${t('ui_my_lang')}</label><input type="text" id="dmt-my-lang" class="text_pole" maxlength="40" placeholder="English"></div>
+                    <details class="dmt-details">
+                        <summary><i class="fa-solid fa-language"></i> ${t('ui_my_prompt')}</summary>
+                        <textarea id="dmt-my-prompt" class="text_pole" rows="5" placeholder="${escapeHtml(t('ui_prompt_ph'))}"></textarea>
+                        <div class="dmt-line"><div class="menu_button" id="dmt-my-reset"><i class="fa-solid fa-rotate-left"></i> ${t('ui_reset_prompt')}</div><small>${t('ui_tr_tip')}</small></div>
+                    </details>
+                </div>`)}
             ${sub(`🎨 ${t('ui_look')}`, `
                 <div class="dmt-row"><label for="dmt-style">${t('ui_style')}</label><select id="dmt-style" class="text_pole">${STYLES.map(k => opt(k, 'style_' + k)).join('')}</select></div>
                 <div class="dmt-preview-wrap"><div class="dmt-preview" id="dmt-preview" data-style="classic"><div class="rpg-thought-header"><span><i class="fa-solid fa-brain"></i> ${escapeHtml(t('ui_char'))}</span></div><div class="rpg-thought-text">${escapeHtml(t('ui_preview'))}</div></div></div>`)}
@@ -512,7 +542,10 @@ function loadSettings() {
         rwPrompt: '',            // empty: RW_PROMPT
         rwExamples: '',
         trLang: '',              // empty: the interface language
-        trPrompt: ''             // empty: TR_PROMPT
+        trPrompt: '',            // empty: TR_PROMPT
+        myOn: false,             // a button by the message box translates the player's own text before sending
+        myLang: '',              // empty: English
+        myPrompt: ''             // empty: MY_PROMPT
     };
     dmtSettings = Object.assign({}, defaults, extension_settings[MODULE_NAME]);
     if (!Number.isFinite(dmtSettings.contextMessages)) dmtSettings.contextMessages = defaults.contextMessages;
@@ -526,8 +559,9 @@ function loadSettings() {
     if (!['normal', 'hidden'].includes(dmtSettings.mode)) dmtSettings.mode = 'normal';
     if (!STYLES.includes(dmtSettings.bubbleStyle)) dmtSettings.bubbleStyle = 'classic';
     if (!dmtSettings.profiles || typeof dmtSettings.profiles !== 'object' || Array.isArray(dmtSettings.profiles)) dmtSettings.profiles = {};
-    ['rwPrompt', 'rwExamples', 'trLang', 'trPrompt'].forEach(k => { if (typeof dmtSettings[k] !== 'string') dmtSettings[k] = ''; });
+    ['rwPrompt', 'rwExamples', 'trLang', 'trPrompt', 'myLang', 'myPrompt'].forEach(k => { if (typeof dmtSettings[k] !== 'string') dmtSettings[k] = ''; });
     dmtSettings.rwOn = !!dmtSettings.rwOn; dmtSettings.rwAuto = !!dmtSettings.rwAuto; dmtSettings.trAuto = !!dmtSettings.trAuto;
+    dmtSettings.myOn = !!dmtSettings.myOn;
 }
 
 function saveSettings() {
@@ -1036,6 +1070,11 @@ function mountSettings() {
     $('#dmt-tr-lang').val(dmtSettings.trLang).attr('placeholder', dmtSettings.language === 'ru' ? 'Russian' : 'English').on('input', function () { dmtSettings.trLang = String(this.value).slice(0, 40); saveSettings(); });
     $('#dmt-tr-prompt').val(dmtSettings.trPrompt || TR_PROMPT).on('input', function () { dmtSettings.trPrompt = this.value === TR_PROMPT ? '' : this.value; saveSettings(); });
     $('#dmt-tr-reset').on('click', () => { dmtSettings.trPrompt = ''; $('#dmt-tr-prompt').val(TR_PROMPT); saveSettings(); });
+    $('#dmt-my-box').toggle(dmtSettings.myOn);
+    $('#dmt-my-on').prop('checked', dmtSettings.myOn).on('change', function () { dmtSettings.myOn = this.checked; $('#dmt-my-box').toggle(this.checked); saveSettings(); mySync(); });
+    $('#dmt-my-lang').val(dmtSettings.myLang).on('input', function () { dmtSettings.myLang = String(this.value).slice(0, 40); saveSettings(); mySync(); });
+    $('#dmt-my-prompt').val(dmtSettings.myPrompt || MY_PROMPT).on('input', function () { dmtSettings.myPrompt = this.value === MY_PROMPT ? '' : this.value; saveSettings(); });
+    $('#dmt-my-reset').on('click', () => { dmtSettings.myPrompt = ''; $('#dmt-my-prompt').val(MY_PROMPT); saveSettings(); });
 
     $('#dmt-inject-context').prop('checked', dmtSettings.injectContext).on('change', function () {
         dmtSettings.injectContext = this.checked;
@@ -1226,6 +1265,76 @@ async function rwAuto(id) {
         }
     } finally { autoBusy.delete(key); }
 }
+
+/* ============================================================
+   MY MESSAGES — a button by the message box translates the player's own text before it is sent.
+   The translation takes the text's place in the box; she looks and sends it herself (nothing is sent
+   by the button, so nothing empty ever goes out). Pressed again while the translation is in the box,
+   her own text comes back. If she types meanwhile, or the model answers nothing, her text stays.
+   ============================================================ */
+let myUndo = null;            // { orig, out } while the translation sits in the box
+let myJob = null;             // { stop } while a translation is on its way
+const myLang = () => String(dmtSettings.myLang || '').trim() || 'English';
+function myBox() { return document.getElementById('send_textarea'); }
+function mySetBox(v) {
+    const ta = myBox(); if (!ta) return;
+    ta.value = v;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    try { ta.focus(); ta.setSelectionRange(v.length, v.length); } catch (e) { }
+}
+function mySync() {
+    let b = document.getElementById('dmt-my-tr');
+    if (!dmtSettings.myOn) { if (b) b.remove(); myUndo = null; return; }
+    const holder = document.getElementById('rightSendForm');
+    if (!holder) return;
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'dmt-my-tr';
+        b.setAttribute('role', 'button');
+        b.tabIndex = 0;
+        b.addEventListener('click', myPress);
+        // (the tavern also turns Enter on an "interactable" into a click: one press, not two)
+        b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); myPress(); } });
+        holder.prepend(b);
+    }
+    const ta = myBox();
+    if (myUndo && (!ta || ta.value !== myUndo.out)) myUndo = null;      // edited, sent or cleared: the way back is gone
+    const state = myJob ? 'busy' : myUndo ? 'undo' : 'go';
+    // a small coin like the suite's seal: "A / 文" to translate, an arrow to bring her text back
+    const cls = 'interactable dmt-coin' + (state === 'busy' ? ' busy' : '') + (state === 'undo' ? ' undo' : '');
+    if (b.className !== cls) b.className = cls;
+    const face = state === 'undo' ? 'undo' : 'go';
+    if (b.dataset.face !== face) {
+        b.dataset.face = face;
+        b.innerHTML = face === 'undo'
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>'
+            : '<span class="dmt-coin-a" aria-hidden="true">A</span><span class="dmt-coin-sl" aria-hidden="true"></span><span class="dmt-coin-z" aria-hidden="true">文</span>';
+    }
+    const tip = state === 'busy' ? t('my_busy') : state === 'undo' ? t('my_undo') : t('my_btn', { LANG: myLang() });
+    if (b.title !== tip) { b.title = tip; b.setAttribute('aria-label', tip); }
+    b.setAttribute('aria-busy', String(state === 'busy'));
+}
+async function myPress() {
+    const ta = myBox(); if (!ta) return;
+    if (myJob) { myJob.stop = true; myJob = null; mySync(); return; }          // stop waiting; the late answer is dropped
+    if (myUndo && ta.value === myUndo.out) { const o = myUndo.orig; myUndo = null; mySetBox(o); mySync(); return; }
+    const src = ta.value;
+    if (!src.trim()) { toastr.info(t('my_empty')); return; }
+    const job = { stop: false }; myJob = job; mySync();
+    try {
+        const sys = String(dmtSettings.myPrompt || MY_PROMPT).split('{LANG}').join(myLang());
+        const out = cleanModelText(await callModel(sys, src, rwBudget(src) * 2, 0.3));
+        if (job.stop) return;
+        if (!out) throw new Error(t('err_empty'));
+        if (ta.value !== src) { toastr.info(t('my_changed')); return; }
+        mySetBox(out);
+        myUndo = { orig: src, out };
+    } catch (e) {
+        if (job.stop) return;
+        console.warn('[DMT] translate my text', e);
+        toastr.error(t('err_prefix', { msg: e.message || String(e) }));
+    } finally { if (myJob === job) myJob = null; mySync(); }
+}
 function rwSyncAll() { document.querySelectorAll('#chat .mes[mesid]').forEach(el => rwSync(Number(el.getAttribute('mesid')))); }
 // a hand edit after a rewrite: the edited text becomes the version on screen
 function rwEdited(id) {
@@ -1296,6 +1405,9 @@ jQuery(() => {
 
         rwBind();
         setTimeout(rwSyncAll, 1500);
+        mySync(); setTimeout(mySync, 1500);
+        $(document).on('input', '#send_textarea', () => { if (myUndo) mySync(); });
+        eventSource.on(event_types.MESSAGE_SENT, () => setTimeout(mySync, 0));
         const rwLater = id => setTimeout(() => rwSync(id), 0);
         eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, rwLater);
         eventSource.on(event_types.MESSAGE_SWIPED, rwLater);
@@ -1307,6 +1419,7 @@ jQuery(() => {
         if (event_types.MORE_MESSAGES_LOADED) eventSource.on(event_types.MORE_MESSAGES_LOADED, () => setTimeout(rwSyncAll, 0));
         eventSource.on(event_types.CHAT_CHANGED, () => {
             setTimeout(rwSyncAll, 0); setTimeout(rwSyncAll, 600);
+            myUndo = null; setTimeout(mySync, 0);
             renderCharBox();
             document.querySelectorAll('.rpg-thought-bubble').forEach(b => b.remove());
             bubblesMap.clear();
