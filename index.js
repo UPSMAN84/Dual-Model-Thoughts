@@ -320,11 +320,20 @@ function syncBubblesNow() {
             plan.push({ bubble, messageId, drop: true });
             continue;
         }
-        plan.push({ bubble, messageId, rect: messageElement.getBoundingClientRect(), hidden: messageElement.offsetParent === null });
+        plan.push({
+            bubble,
+            messageId,
+            rect: messageElement.getBoundingClientRect(),
+            hidden: messageElement.offsetParent === null,
+            bubbleWidth: bubble.offsetWidth,
+            bubbleMarginLeft: parseFloat(getComputedStyle(bubble).marginLeft) || 0,
+        });
     }
 
     // pass two: write, never measuring again
     const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const EDGE_PADDING = 8;
     for (const item of plan) {
         const { bubble } = item;
         if (item.drop) {
@@ -349,13 +358,16 @@ function syncBubblesNow() {
 
         bubble.style.top = rect.top + 'px';
 
-        if (rect.left < 250) {
-            bubble.classList.add('mobile-fallback');
-            bubble.style.left = (rect.left + 50) + 'px';
-        } else {
-            bubble.classList.remove('mobile-fallback');
-            bubble.style.left = rect.left + 'px';
-        }
+        // Anchor to right edge of message so bubble extends rightward, but never
+        // past the viewport edge, and never pull it past the message's own left
+        // edge either — on a phone the message already spans close to the full
+        // screen width, so a plain right-edge anchor pushed the bubble off-screen,
+        // and an unbounded leftward correction dragged it clear to the opposite side.
+        bubble.classList.remove('mobile-fallback');
+        let left = rect.right;
+        const overflow = (left + item.bubbleMarginLeft + item.bubbleWidth) - (vw - EDGE_PADDING);
+        if (overflow > 0) left = Math.max(left - overflow, rect.left);
+        bubble.style.left = left + 'px';
 
         if (rect.bottom < 0 || rect.top > vh) {
             bubble.style.opacity = '0';

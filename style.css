@@ -5,7 +5,7 @@
 
 .rpg-thought-bubble {
     position: absolute;
-    transform: translateX(-100%);
+    transform: translateX(0);
     pointer-events: auto;
     cursor: pointer;
     box-sizing: border-box;
@@ -28,10 +28,10 @@
     backdrop-filter: blur(8px);
     
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    transform-origin: top right;
+    transform-origin: top left;
     animation: float-bubble 4s ease-in-out infinite;
 
-    margin-left: -15px;
+    margin-left: 15px;
     margin-top: 40px; 
     width: 300px;
     max-height: 600px; 
@@ -40,8 +40,8 @@
 }
 
 @keyframes float-bubble {
-    0%, 100% { transform: translateX(-100%) translateY(0); }
-    50% { transform: translateX(-100%) translateY(-6px); }
+    0%, 100% { transform: translateX(0) translateY(0); }
+    50% { transform: translateX(0) translateY(-6px); }
 }
 
 .rpg-thought-bubble:hover {
@@ -139,6 +139,12 @@
 
 .rpg-thought-bubble.mobile-fallback { transform: translateX(0); margin-left: 20px; }
 .rpg-thought-bubble.mobile-fallback::before, .rpg-thought-bubble.mobile-fallback::after { display: none; }
+
+@media (max-width: 480px) {
+    .rpg-thought-bubble:not(.rpg-collapsed) {
+        width: min(300px, 70vw);
+    }
+}
 
 /* ---------- bubble styles (Settings → Look) ---------- */
 .rpg-thought-bubble[data-style="paper"], .dmt-preview[data-style="paper"] {
