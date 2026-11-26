@@ -475,7 +475,7 @@ async function generateThoughtAPI(chatMessages, charName) {
 
     for (let i = 0; i <= maxRetries; i++) {
         try {
-            const response = await proxiedFetch(endpointUrl, {
+            const response = await fetch(endpointUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey().trim()}`,
